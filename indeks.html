@@ -49,22 +49,19 @@
                         </ul>
                     </li>
                     <li>
-                        <strong class="text-white">Masukkan API key ke konfigurasi</strong>
+                        <strong class="text-white">Pastikan konfigurasi API key sudah benar</strong>
                         <ul class="list-disc list-outside ml-5 mt-1 text-gray-400">
-                            <li>Biasanya ada di file <code class="bg-gray-800 text-sm px-1.5 py-0.5 rounded text-gray-200">.env</code>, <code class="bg-gray-800 text-sm px-1.5 py-0.5 rounded text-gray-200">config.js</code>, atau di halaman pengaturan aplikasi.</li>
+                            <li>Kunci API akan otomatis dimasukkan oleh sistem (environment), pastikan Anda memiliki akses yang valid.</li>
                         </ul>
                     </li>
                     <li>
-                        <strong class="text-white">Pastikan format API key benar</strong>
+                        <strong class="text-white">Cek koneksi internet</strong>
                         <ul class="list-disc list-outside ml-5 mt-1 text-gray-400">
-                            <li>Tidak ada spasi tambahan, tidak terpotong, dan masih aktif (belum expired).</li>
+                            <li>Pastikan internet Anda stabil untuk menghubungi server AI.</li>
                         </ul>
                     </li>
                     <li>
-                        <strong class="text-white">Jika pakai layanan berbayar</strong>, pastikan kuota/pembayaran masih aktif.
-                    </li>
-                    <li>
-                        <strong class="text-white">Restart aplikasi</strong> setelah memasukkan API key.
+                        <strong class="text-white">Refresh aplikasi</strong> dan coba upload kembali gambar Anda.
                     </li>
                 </ol>
             </div>
@@ -104,6 +101,7 @@
 
             const reader = new FileReader();
             reader.onload = (e) => {
+                // Mengambil string base64 murni tanpa prefix data:image/...
                 base64Image = e.target.result.split(',')[1];
                 preview.src = e.target.result;
                 preview.classList.remove('hidden');
@@ -144,7 +142,10 @@
         }
 
         analyzeBtn.addEventListener('click', async () => {
-            if (!base64Image) return;
+            if (!base64Image) {
+                alert("Pilih gambar terlebih dahulu!");
+                return;
+            }
 
             loader.classList.remove('hidden');
             result.classList.add('hidden');
@@ -152,8 +153,7 @@
             analyzeBtn.disabled = true;
 
             try {
-                const apiKey = ""; // API key managed by environment
-                // Menggunakan model terbaru yang didukung untuk environment ini
+                const apiKey = ""; // API key dikelola otomatis oleh environment
                 const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
                 const payload = {
@@ -166,11 +166,10 @@
                     }]
                 };
 
-                // Menggunakan fungsi fetch dengan exponential backoff
                 const data = await fetchWithBackoff(apiUrl, payload);
                 const text = data.candidates[0].content.parts[0].text;
                 
-                // Membersihkan markdown jika ada
+                // Membersihkan sisa markdown jika model membalas dengan blok kode
                 const cleanedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
                 const json = JSON.parse(cleanedText);
 
@@ -180,7 +179,6 @@
                 result.classList.remove('hidden');
             } catch (err) {
                 console.error("Analisis gagal:", err);
-                // Menampilkan UI error sesuai gambar yang diberikan
                 errorMessage.classList.remove('hidden');
             } finally {
                 loader.classList.add('hidden');
