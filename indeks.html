@@ -19,6 +19,28 @@
         </header>
 
         <main class="bg-gray-800 p-6 rounded-2xl shadow-xl border border-gray-700">
+
+            <!-- API Key Input -->
+            <div class="mb-6">
+                <label for="apiKeyInput" class="block text-sm font-semibold text-gray-400 mb-2">
+                    Gemini API Key
+                </label>
+                <div class="flex gap-2">
+                    <input type="password" id="apiKeyInput"
+                        class="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                        placeholder="Tempel API key kamu di sini">
+                    <button id="toggleKeyBtn" type="button"
+                        class="px-3 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm">
+                        Lihat
+                    </button>
+                </div>
+                <p class="text-xs text-gray-500 mt-1">
+                    Key disimpan hanya di browser kamu (localStorage), tidak pernah dikirim ke server lain selain Google.
+                    Belum punya key? Ambil gratis di
+                    <a href="https://aistudio.google.com/apikey" target="_blank" class="text-blue-400 hover:underline">Google AI Studio</a>.
+                </p>
+            </div>
+
             <!-- Upload Area -->
             <div id="dropZone" class="border-2 border-dashed border-gray-600 rounded-xl p-8 text-center cursor-pointer hover:border-blue-500 transition-colors mb-6">
                 <input type="file" id="fileInput" class="hidden" accept="image/*">
@@ -40,28 +62,22 @@
 
             <!-- Error Message Display -->
             <div id="errorMessage" class="hidden mt-6 bg-gray-900 border border-red-900/50 p-6 rounded-xl text-left">
-                <h3 class="text-xl font-bold mb-4 text-white">Langkah yang bisa kamu coba:</h3>
-                <ol class="list-decimal list-outside ml-5 space-y-4 text-gray-300">
+                <h3 class="text-xl font-bold mb-2 text-white">Analisis gagal</h3>
+                <p id="errorDetail" class="text-red-400 text-sm mb-4 font-mono break-words"></p>
+                <h4 class="text-sm font-bold mb-3 text-gray-300 uppercase tracking-wider">Langkah yang bisa kamu coba:</h4>
+                <ol class="list-decimal list-outside ml-5 space-y-3 text-gray-300 text-sm">
                     <li>
-                        <strong class="text-white">Cek apakah kamu punya API key</strong>
-                        <ul class="list-disc list-outside ml-5 mt-1 text-gray-400">
-                            <li>Biasanya diperoleh dari platform seperti Google AI Studio, OpenAI, atau Hugging Face.</li>
-                        </ul>
+                        <strong class="text-white">Pastikan sudah mengisi API key</strong> di kolom di atas.
+                        Ambil dari <a href="https://aistudio.google.com/apikey" target="_blank" class="text-blue-400 hover:underline">Google AI Studio</a>.
                     </li>
                     <li>
-                        <strong class="text-white">Pastikan konfigurasi API key sudah benar</strong>
-                        <ul class="list-disc list-outside ml-5 mt-1 text-gray-400">
-                            <li>Kunci API akan otomatis dimasukkan oleh sistem (environment), pastikan Anda memiliki akses yang valid.</li>
-                        </ul>
+                        <strong class="text-white">Cek key masih aktif</strong> dan kuota gratisnya belum habis.
                     </li>
                     <li>
-                        <strong class="text-white">Cek koneksi internet</strong>
-                        <ul class="list-disc list-outside ml-5 mt-1 text-gray-400">
-                            <li>Pastikan internet Anda stabil untuk menghubungi server AI.</li>
-                        </ul>
+                        <strong class="text-white">Cek koneksi internet</strong> kamu stabil.
                     </li>
                     <li>
-                        <strong class="text-white">Refresh aplikasi</strong> dan coba upload kembali gambar Anda.
+                        <strong class="text-white">Coba lagi</strong> — kadang server Google sedang sibuk.
                     </li>
                 </ol>
             </div>
@@ -89,8 +105,23 @@
         const result = document.getElementById('result');
         const uploadLabel = document.getElementById('uploadLabel');
         const errorMessage = document.getElementById('errorMessage');
+        const errorDetail = document.getElementById('errorDetail');
+        const apiKeyInput = document.getElementById('apiKeyInput');
+        const toggleKeyBtn = document.getElementById('toggleKeyBtn');
 
         let base64Image = null;
+        let imageMimeType = 'image/png';
+
+        // Restore saved key (client-side only, never committed to the repo)
+        apiKeyInput.value = localStorage.getItem('gemini_api_key') || '';
+        apiKeyInput.addEventListener('change', () => {
+            localStorage.setItem('gemini_api_key', apiKeyInput.value.trim());
+        });
+        toggleKeyBtn.addEventListener('click', () => {
+            const isPassword = apiKeyInput.type === 'password';
+            apiKeyInput.type = isPassword ? 'text' : 'password';
+            toggleKeyBtn.textContent = isPassword ? 'Sembunyikan' : 'Lihat';
+        });
 
         dropZone.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', handleFile);
@@ -98,6 +129,8 @@
         function handleFile(e) {
             const file = e.target.files[0];
             if (!file) return;
+
+            imageMimeType = file.type || 'image/png';
 
             const reader = new FileReader();
             reader.onload = (e) => {
@@ -113,7 +146,7 @@
         }
 
         async function fetchWithBackoff(url, payload) {
-            const delays = [1000, 2000, 4000, 8000, 16000];
+            const delays = [1000, 2000, 4000];
             let lastError;
 
             for (let i = 0; i <= delays.length; i++) {
@@ -125,16 +158,23 @@
                     });
 
                     const data = await response.json();
-                    
+
                     if (!response.ok || data.error) {
-                        throw new Error(data.error?.message || `HTTP error! status: ${response.status}`);
+                        // 4xx errors (bad key, bad request) won't fix themselves on retry
+                        const status = data.error?.code || response.status;
+                        const err = new Error(data.error?.message || `HTTP error! status: ${response.status}`);
+                        err.status = status;
+                        throw err;
                     }
-                    
+
                     return data;
                 } catch (err) {
                     lastError = err;
-                    if (i < delays.length) {
+                    const isClientError = err.status && err.status >= 400 && err.status < 500;
+                    if (i < delays.length && !isClientError) {
                         await new Promise(resolve => setTimeout(resolve, delays[i]));
+                    } else {
+                        break;
                     }
                 }
             }
@@ -142,6 +182,15 @@
         }
 
         analyzeBtn.addEventListener('click', async () => {
+            const apiKey = apiKeyInput.value.trim();
+
+            if (!apiKey) {
+                errorDetail.textContent = 'API key belum diisi.';
+                errorMessage.classList.remove('hidden');
+                apiKeyInput.focus();
+                return;
+            }
+
             if (!base64Image) {
                 alert("Pilih gambar terlebih dahulu!");
                 return;
@@ -153,32 +202,36 @@
             analyzeBtn.disabled = true;
 
             try {
-                const apiKey = ""; // API key dikelola otomatis oleh environment
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
 
                 const payload = {
                     contents: [{
                         role: "user",
                         parts: [
-                            { text: "Analyze the image and return a JSON object with 'judul' (short title) and 'deskripsi' (short description). Do not add any markdown, just raw JSON." },
-                            { inlineData: { mimeType: "image/png", data: base64Image } }
+                            { text: "Analyze the image and return a JSON object with 'judul' (short title) and 'deskripsi' (short description), both in Bahasa Indonesia. Do not add any markdown, just raw JSON." },
+                            { inlineData: { mimeType: imageMimeType, data: base64Image } }
                         ]
                     }]
                 };
 
                 const data = await fetchWithBackoff(apiUrl, payload);
-                const text = data.candidates[0].content.parts[0].text;
-                
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                if (!text) {
+                    throw new Error('Respons AI kosong atau diblokir oleh filter keamanan.');
+                }
+
                 // Membersihkan sisa markdown jika model membalas dengan blok kode
                 const cleanedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
                 const json = JSON.parse(cleanedText);
 
                 document.getElementById('outputJudul').innerText = json.judul;
                 document.getElementById('outputDeskripsi').innerText = json.deskripsi;
-                
+
                 result.classList.remove('hidden');
             } catch (err) {
                 console.error("Analisis gagal:", err);
+                errorDetail.textContent = err.message || String(err);
                 errorMessage.classList.remove('hidden');
             } finally {
                 loader.classList.add('hidden');
