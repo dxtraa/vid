@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Content Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen p-4 md:p-8">
+
+    <div class="max-w-3xl mx-auto">
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl font-bold mb-2">AI Content Analyzer</h1>
+            <p class="text-gray-400">Upload gambar untuk mendapatkan ringkasan otomatis.</p>
+        </header>
+
+        <main class="bg-gray-800 p-6 rounded-2xl shadow-xl border border-gray-700">
+            <!-- Upload Area -->
+            <div id="dropZone" class="border-2 border-dashed border-gray-600 rounded-xl p-8 text-center cursor-pointer hover:border-blue-500 transition-colors mb-6">
+                <input type="file" id="fileInput" class="hidden" accept="image/*">
+                <div id="uploadLabel">
+                    <p class="text-gray-400">Klik untuk upload atau drag & drop gambar</p>
+                </div>
+                <img id="preview" class="hidden max-h-64 mx-auto rounded-lg mt-4" alt="Preview">
+            </div>
+
+            <button id="analyzeBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                Analisis Gambar
+            </button>
+
+            <!-- Loading Indicator -->
+            <div id="loader" class="hidden mt-6 text-center">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+                <p class="mt-2 text-blue-400">Sedang menganalisis konten...</p>
+            </div>
+
+            <!-- Error Message Display -->
+            <div id="errorMessage" class="hidden mt-6 bg-gray-900 border border-red-900/50 p-6 rounded-xl text-left">
+                <h3 class="text-xl font-bold mb-4 text-white">Langkah yang bisa kamu coba:</h3>
+                <ol class="list-decimal list-outside ml-5 space-y-4 text-gray-300">
+                    <li>
+                        <strong class="text-white">Cek apakah kamu punya API key</strong>
+                        <ul class="list-disc list-outside ml-5 mt-1 text-gray-400">
+                            <li>Biasanya diperoleh dari platform seperti Google AI Studio, OpenAI, atau Hugging Face.</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong class="text-white">Masukkan API key ke konfigurasi</strong>
+                        <ul class="list-disc list-outside ml-5 mt-1 text-gray-400">
+                            <li>Biasanya ada di file <code class="bg-gray-800 text-sm px-1.5 py-0.5 rounded text-gray-200">.env</code>, <code class="bg-gray-800 text-sm px-1.5 py-0.5 rounded text-gray-200">config.js</code>, atau di halaman pengaturan aplikasi.</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong class="text-white">Pastikan format API key benar</strong>
+                        <ul class="list-disc list-outside ml-5 mt-1 text-gray-400">
+                            <li>Tidak ada spasi tambahan, tidak terpotong, dan masih aktif (belum expired).</li>
+                        </ul>
+                    </li>
+                    <li>
+                        <strong class="text-white">Jika pakai layanan berbayar</strong>, pastikan kuota/pembayaran masih aktif.
+                    </li>
+                    <li>
+                        <strong class="text-white">Restart aplikasi</strong> setelah memasukkan API key.
+                    </li>
+                </ol>
+            </div>
+
+            <!-- Result Display -->
+            <div id="result" class="hidden mt-8 space-y-4 border-t border-gray-700 pt-6">
+                <div class="bg-gray-900 p-4 rounded-lg">
+                    <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-1">Judul singkat:</h2>
+                    <p id="outputJudul" class="text-xl font-medium"></p>
+                </div>
+                <div class="bg-gray-900 p-4 rounded-lg">
+                    <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-1">Deskripsi singkat:</h2>
+                    <p id="outputDeskripsi" class="text-gray-300 leading-relaxed"></p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const dropZone = document.getElementById('dropZone');
+        const preview = document.getElementById('preview');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const loader = document.getElementById('loader');
+        const result = document.getElementById('result');
+        const uploadLabel = document.getElementById('uploadLabel');
+        const errorMessage = document.getElementById('errorMessage');
+
+        let base64Image = null;
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', handleFile);
+
+        function handleFile(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                base64Image = e.target.result.split(',')[1];
+                preview.src = e.target.result;
+                preview.classList.remove('hidden');
+                uploadLabel.classList.add('hidden');
+                errorMessage.classList.add('hidden');
+                result.classList.add('hidden');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function fetchWithBackoff(url, payload) {
+            const delays = [1000, 2000, 4000, 8000, 16000];
+            let lastError;
+
+            for (let i = 0; i <= delays.length; i++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const data = await response.json();
+                    
+                    if (!response.ok || data.error) {
+                        throw new Error(data.error?.message || `HTTP error! status: ${response.status}`);
+                    }
+                    
+                    return data;
+                } catch (err) {
+                    lastError = err;
+                    if (i < delays.length) {
+                        await new Promise(resolve => setTimeout(resolve, delays[i]));
+                    }
+                }
+            }
+            throw lastError;
+        }
+
+        analyzeBtn.addEventListener('click', async () => {
+            if (!base64Image) return;
+
+            loader.classList.remove('hidden');
+            result.classList.add('hidden');
+            errorMessage.classList.add('hidden');
+            analyzeBtn.disabled = true;
+
+            try {
+                const apiKey = ""; // API key managed by environment
+                // Menggunakan model terbaru yang didukung untuk environment ini
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+                const payload = {
+                    contents: [{
+                        role: "user",
+                        parts: [
+                            { text: "Analyze the image and return a JSON object with 'judul' (short title) and 'deskripsi' (short description). Do not add any markdown, just raw JSON." },
+                            { inlineData: { mimeType: "image/png", data: base64Image } }
+                        ]
+                    }]
+                };
+
+                // Menggunakan fungsi fetch dengan exponential backoff
+                const data = await fetchWithBackoff(apiUrl, payload);
+                const text = data.candidates[0].content.parts[0].text;
+                
+                // Membersihkan markdown jika ada
+                const cleanedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                const json = JSON.parse(cleanedText);
+
+                document.getElementById('outputJudul').innerText = json.judul;
+                document.getElementById('outputDeskripsi').innerText = json.deskripsi;
+                
+                result.classList.remove('hidden');
+            } catch (err) {
+                console.error("Analisis gagal:", err);
+                // Menampilkan UI error sesuai gambar yang diberikan
+                errorMessage.classList.remove('hidden');
+            } finally {
+                loader.classList.add('hidden');
+                analyzeBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
